@@ -3,3 +3,5 @@ Pillow
 deep-translator
 arabic-reshaper
 python-bidi
+pilmoji
+requests
