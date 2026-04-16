@@ -7,7 +7,30 @@ import io
 import textwrap
 import os
 import re
-from pilmoji import Pilmoji # NEW: The Emoji Engine
+import requests 
+from pilmoji import Pilmoji
+
+# --- AUTO-FONT DOWNLOADER ---
+@st.cache_resource
+def download_required_fonts():
+    fonts_to_download = {
+        "font_bold.ttf": "https://github.com/googlefonts/roboto/raw/main/src/hinted/Roboto-Bold.ttf",
+        "font_regular.ttf": "https://github.com/googlefonts/roboto/raw/main/src/hinted/Roboto-Regular.ttf",
+        "font_italic.ttf": "https://github.com/googlefonts/roboto/raw/main/src/hinted/Roboto-Italic.ttf",
+        "urdu_font.ttf": "https://github.com/googlefonts/noto-fonts/raw/main/unhinted/ttf/NotoNastaliqUrdu/NotoNastaliqUrdu-Regular.ttf"
+    }
+    
+    for filename, url in fonts_to_download.items():
+        if not os.path.exists(filename):
+            try:
+                response = requests.get(url)
+                with open(filename, 'wb') as f:
+                    f.write(response.content)
+            except Exception as e:
+                print(f"Failed to download {filename}: {e}")
+
+download_required_fonts()
+
 
 # --- PAGE SETUP ---
 st.set_page_config(page_title="Discover Shamshikhel Post Studio", page_icon="📱", layout="wide")
@@ -84,18 +107,16 @@ def get_font_path(is_urdu, style_choice):
     elif os.path.exists("font_regular.ttf"): return "font_regular.ttf"
     return None
 
-# --- EMOJI-AWARE TEXT ENGINE ---
+# --- TEXT ENGINE ---
 def process_and_draw_text(img_rgba, text, max_width, max_height, start_y, is_urdu, color, max_font, selected_style, overlay):
     font_path = get_font_path(is_urdu, selected_style)
     current_size = max_font
     wrapped_lines = []
     
-    # 1. Auto-Scaling Logic
     while current_size > 20:
         try:
             font = ImageFont.truetype(font_path, current_size) if font_path else ImageFont.load_default()
         except OSError:
-            st.warning("⚠️ Warning: Font file is corrupted or missing. Falling back to default font.")
             font = ImageFont.load_default()
             font_path = None
             
@@ -108,9 +129,8 @@ def process_and_draw_text(img_rgba, text, max_width, max_height, start_y, is_urd
             break
         current_size -= 5
         
-    # 2. Draw Overlay Box
     if overlay != "None (Direct on Image)":
-        padding = 50
+        padding = 40
         box_y1 = start_y - padding
         box_y2 = start_y + total_text_height + padding
         box_x1 = (img_rgba.width - max_width) / 2 - padding
@@ -120,20 +140,19 @@ def process_and_draw_text(img_rgba, text, max_width, max_height, start_y, is_urd
             fill_color = (0, 0, 0, 180) 
             color = (255, 255, 255) 
         else:
-            fill_color = (255, 255, 255, 200)
+            fill_color = (255, 255, 255, 210)
             color = (0, 0, 0) 
             
         box_layer = Image.new('RGBA', img_rgba.size, (0,0,0,0))
         box_draw = ImageDraw.Draw(box_layer)
         
         try:
-            box_draw.rounded_rectangle([box_x1, box_y1, box_x2, box_y2], radius=30, fill=fill_color)
+            box_draw.rounded_rectangle([box_x1, box_y1, box_x2, box_y2], radius=25, fill=fill_color)
         except AttributeError:
             box_draw.rectangle([box_x1, box_y1, box_x2, box_y2], fill=fill_color)
             
         img_rgba = Image.alpha_composite(img_rgba, box_layer)
 
-    # 3. Draw Text with Emoji Support
     draw = ImageDraw.Draw(img_rgba)
     y_text = start_y
     for line in wrapped_lines:
@@ -141,7 +160,6 @@ def process_and_draw_text(img_rgba, text, max_width, max_height, start_y, is_urd
             reshaped_text = arabic_reshaper.reshape(line)
             line = get_display(reshaped_text)
             
-        # Calculate width to center the text
         if font_path:
             bbox = draw.textbbox((0, 0), line, font=font)
             line_width = bbox[2] - bbox[0]
@@ -150,7 +168,6 @@ def process_and_draw_text(img_rgba, text, max_width, max_height, start_y, is_urd
             
         x_text = (img_rgba.width - line_width) / 2
         
-        # NEW: Draw the line using the Pilmoji engine so emojis render in full color
         with Pilmoji(img_rgba) as pilmoji:
             pilmoji.text((x_text, y_text), line, font=font, fill=color)
             
@@ -163,7 +180,7 @@ if generate_btn:
     if not user_text.strip():
         st.warning("⚠️ Please enter some text first!")
     else:
-        with st.spinner("Designing your HD Post..."):
+        with st.spinner("Downloading assets and designing your HD Post..."):
             
             final_text = user_text
             try:
@@ -178,9 +195,19 @@ if generate_btn:
 
             is_urdu = contains_urdu(final_text)
 
-            if "Square" in size_choice: canvas_w, canvas_h = 1080, 1080
-            elif "Landscape" in size_choice: canvas_w, canvas_h = 1200, 630
-            else: canvas_w, canvas_h = 1080, 1350
+            # NEW LOGIC: Pixel-Perfect Spacing specific to each format to prevent Logo Overlaps
+            if "Square" in size_choice: 
+                canvas_w, canvas_h = 1080, 1080
+                logo_size = 160
+                start_y = 280
+            elif "Landscape" in size_choice: 
+                canvas_w, canvas_h = 1200, 630
+                logo_size = 130  # Slightly smaller logo for landscape
+                start_y = 230    # Pushed safely below the logo
+            else: 
+                canvas_w, canvas_h = 1080, 1350
+                logo_size = 160
+                start_y = 300
 
             if theme == "Upload Custom Image" and bg_image_upload is not None:
                 user_img = Image.open(bg_image_upload).convert("RGBA")
@@ -195,8 +222,8 @@ if generate_btn:
             rgb_text_color = color_map.get(final_text_color, (255,255,255))
 
             text_box_width = canvas_w - 200
-            text_box_height = canvas_h - 300
-            start_y = int(canvas_h * 0.25)
+            # Dynamically calculate remaining space so text never falls off the bottom
+            text_box_height = canvas_h - start_y - 80 
             
             img = process_and_draw_text(img, final_text, text_box_width, text_box_height, start_y, is_urdu, rgb_text_color, max_font_size, font_style, overlay_style)
 
@@ -215,7 +242,6 @@ if generate_btn:
                 circular_logo = raw_logo.copy()
                 circular_logo.putalpha(mask)
                 
-                logo_size = int(canvas_w * 0.15) 
                 circular_logo = circular_logo.resize((logo_size, logo_size), Image.LANCZOS)
                 padding = 40
                 
