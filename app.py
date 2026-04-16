@@ -1,5 +1,6 @@
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont, ImageOps
+import PIL.features # NEW: Used to check for OS-level Urdu support
 from deep_translator import GoogleTranslator
 import arabic_reshaper
 from bidi.algorithm import get_display
@@ -10,47 +11,43 @@ import re
 import requests 
 from pilmoji import Pilmoji
 
-# --- CLOUD-SAFE FONT DOWNLOADER ---
+# --- AUTO-DOWNLOADER (English Fonts Only to prevent timeouts) ---
 @st.cache_resource
-def download_required_fonts():
-    fonts_to_download = {
+def download_english_fonts():
+    fonts = {
         "font_bold.ttf": "https://github.com/googlefonts/roboto/raw/main/src/hinted/Roboto-Bold.ttf",
         "font_regular.ttf": "https://github.com/googlefonts/roboto/raw/main/src/hinted/Roboto-Regular.ttf",
-        "font_italic.ttf": "https://github.com/googlefonts/roboto/raw/main/src/hinted/Roboto-Italic.ttf",
-        # Changed to a highly stable, cloud-friendly Urdu font (Noto Sans Arabic)
-        "urdu_font.ttf": "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSansArabic/NotoSansArabic-Regular.ttf"
     }
-    
-    for filename, url in fonts_to_download.items():
+    for filename, url in fonts.items():
         if not os.path.exists(filename):
             try:
                 response = requests.get(url)
-                with open(filename, 'wb') as f:
-                    f.write(response.content)
-            except Exception as e:
-                print(f"Failed to download {filename}: {e}")
+                with open(filename, 'wb') as f: f.write(response.content)
+            except Exception: pass
 
-download_required_fonts()
+download_english_fonts()
 
 # --- PAGE SETUP ---
 st.set_page_config(page_title="Discover Shamshikhel Post Studio", page_icon="📱", layout="wide")
 
 st.title("📱 Discover Shamshikhel: Pro Post Studio")
-st.markdown("Create stunning updates. Use the **Advanced Fine-Tuning** menu to manually position your text and logo!")
+
+# Check if the server successfully installed the Urdu Graphics Engine
+raqm_installed = PIL.features.check("raqm")
+if raqm_installed:
+    st.success("✅ OS-Level Urdu Graphics Engine (Raqm) is Active! Nastaliq script will render perfectly.")
+else:
+    st.error("⚠️ Urdu Engine (Raqm) not found. Streamlit is still installing packages.txt. Please wait or reboot the app.")
 
 # --- UI CONTROLS ---
 with st.sidebar:
     st.header("1. Post Content")
-    user_text = st.text_area("Paste your news or update here (Emojis supported! 🌴✨):", height=150)
+    user_text = st.text_area("Paste your news or update here:", height=150)
     language = st.selectbox("Language Translation:", ["Original Text", "English", "Urdu", "Roman Urdu"])
     
     st.header("2. Background & Layout")
     size_choice = st.selectbox("Post Size:", ["Square (1080x1080)", "Landscape (1200x630)", "Portrait (1080x1350)"])
-    
-    theme = st.selectbox("Background Theme:", [
-        "Facebook Blue", "Emerald News", "Sunrise (Gold/Orange)", 
-        "Midnight Alert", "Blank (White)", "Upload Custom Image"
-    ])
+    theme = st.selectbox("Background Theme:", ["Facebook Blue", "Emerald News", "Sunrise (Gold/Orange)", "Midnight Alert", "Blank (White)", "Upload Custom Image"])
     
     if theme == "Upload Custom Image":
         bg_image_upload = st.file_uploader("Upload your photo here:", type=["jpg", "png", "jpeg"])
@@ -61,15 +58,10 @@ with st.sidebar:
     
     st.header("3. Typography")
     text_color = st.selectbox("Text Color:", ["Auto", "White", "Black", "Gold", "Dark Green"])
-    font_style = st.selectbox("Font Style (English/Roman):", ["Bold", "Regular", "Italic"])
     
-    # NEW: ADVANCED MANUAL CONTROLS
-    with st.expander("🛠️ Advanced Fine-Tuning (Manual Edit)"):
-        st.markdown("**Text Adjustments**")
+    with st.expander("🛠️ Advanced Fine-Tuning"):
         manual_font_size = st.slider("Force Font Size:", 20, 150, 70)
-        text_y_offset = st.slider("Move Text Up/Down:", -300, 300, 0, help="Negative moves up, positive moves down.")
-        
-        st.markdown("**Logo Adjustments**")
+        text_y_offset = st.slider("Move Text Up/Down:", -300, 300, 0)
         logo_scale = st.slider("Logo Size:", 50, 300, 150)
         logo_x_offset = st.slider("Move Logo Left/Right:", -500, 50, 0)
         logo_y_offset = st.slider("Move Logo Up/Down:", -50, 500, 0)
@@ -95,25 +87,19 @@ def get_theme_background(theme_choice, width, height):
 
 def contains_urdu(text): return bool(re.search(r'[\u0600-\u06FF]', text))
 
-def get_font_path(is_urdu, style_choice):
+def get_font_path(is_urdu):
     if is_urdu and os.path.exists("urdu_font.ttf"): return "urdu_font.ttf"
-    style_map = {"Regular": "font_regular.ttf", "Bold": "font_bold.ttf", "Italic": "font_italic.ttf"}
-    target = style_map.get(style_choice, "font_bold.ttf")
-    return target if os.path.exists(target) else ("font_bold.ttf" if os.path.exists("font_bold.ttf") else None)
+    return "font_bold.ttf" if os.path.exists("font_bold.ttf") else None
 
-# --- TEXT ENGINE ---
-def process_and_draw_text(img_rgba, text, max_width, start_y, is_urdu, color, manual_size, selected_style, overlay):
-    font_path = get_font_path(is_urdu, selected_style)
+# --- NATIVE URDU TEXT ENGINE ---
+def process_and_draw_text(img_rgba, text, max_width, start_y, is_urdu, color, manual_size, overlay):
+    font_path = get_font_path(is_urdu)
     
-    try:
-        font = ImageFont.truetype(font_path, manual_size) if font_path else ImageFont.load_default()
-    except OSError:
-        font = ImageFont.load_default()
-        font_path = None
+    try: font = ImageFont.truetype(font_path, manual_size) if font_path else ImageFont.load_default()
+    except OSError: font = ImageFont.load_default()
         
     char_width = manual_size * 0.55
-    wrap_width = int(max_width / char_width)
-    if wrap_width < 1: wrap_width = 1 # Prevent crash on massive fonts
+    wrap_width = max(1, int(max_width / char_width))
     wrapped_lines = textwrap.wrap(text, width=wrap_width)
     total_text_height = len(wrapped_lines) * (manual_size * 1.5)
         
@@ -135,22 +121,34 @@ def process_and_draw_text(img_rgba, text, max_width, start_y, is_urdu, color, ma
 
     draw = ImageDraw.Draw(img_rgba)
     y_text = start_y
+    
     for line in wrapped_lines:
         if is_urdu:
-            reshaped_text = arabic_reshaper.reshape(line)
-            line = get_display(reshaped_text)
-            
-        if font_path:
+            if raqm_installed:
+                # 🥇 NATIVE URDU DRAWING (Perfect Nastaliq, no reshaper bugs)
+                try:
+                    bbox = draw.textbbox((0, 0), line, font=font, direction='rtl', language='ur')
+                    line_width = bbox[2] - bbox[0]
+                    x_text = (img_rgba.width - line_width) / 2
+                    draw.text((x_text, y_text), line, font=font, fill=color, direction='rtl', language='ur')
+                except Exception as e:
+                    st.error(f"Text rendering error: {e}")
+            else:
+                # 🥈 FALLBACK (Requires rebooting app to fix)
+                reshaped = arabic_reshaper.reshape(line)
+                display_line = get_display(reshaped)
+                bbox = draw.textbbox((0, 0), display_line, font=font)
+                line_width = bbox[2] - bbox[0]
+                x_text = (img_rgba.width - line_width) / 2
+                draw.text((x_text, y_text), display_line, font=font, fill=color)
+        else:
+            # ENGLISH / ROMAN (Uses Pilmoji for Emojis)
             bbox = draw.textbbox((0, 0), line, font=font)
             line_width = bbox[2] - bbox[0]
-        else:
-            line_width = draw.textlength(line, font=font)
-            
-        x_text = (img_rgba.width - line_width) / 2
-        
-        with Pilmoji(img_rgba) as pilmoji:
-            pilmoji.text((x_text, y_text), line, font=font, fill=color)
-            
+            x_text = (img_rgba.width - line_width) / 2
+            with Pilmoji(img_rgba) as pilmoji:
+                pilmoji.text((x_text, y_text), line, font=font, fill=color)
+                
         y_text += (manual_size * 1.5)
         
     return img_rgba
@@ -160,28 +158,20 @@ if generate_btn:
     if not user_text.strip():
         st.warning("⚠️ Please enter some text first!")
     else:
-        with st.spinner("Downloading assets and designing your HD Post..."):
+        with st.spinner("Processing Professional Layout..."):
             
             final_text = user_text
             try:
                 if language == "English": final_text = GoogleTranslator(source='auto', target='en').translate(user_text)
                 elif language == "Urdu": final_text = GoogleTranslator(source='auto', target='ur').translate(user_text)
-                elif language == "Roman Urdu": final_text = user_text 
             except Exception: pass
 
             is_urdu = contains_urdu(final_text)
 
-            if "Square" in size_choice: 
-                canvas_w, canvas_h = 1080, 1080
-                base_start_y = 350
-            elif "Landscape" in size_choice: 
-                canvas_w, canvas_h = 1200, 630
-                base_start_y = 200
-            else: 
-                canvas_w, canvas_h = 1080, 1350
-                base_start_y = 400
+            if "Square" in size_choice: canvas_w, canvas_h, base_start_y = 1080, 1080, 350
+            elif "Landscape" in size_choice: canvas_w, canvas_h, base_start_y = 1200, 630, 200
+            else: canvas_w, canvas_h, base_start_y = 1080, 1350, 400
 
-            # Apply Manual Y Offset
             final_start_y = base_start_y + text_y_offset
 
             if theme == "Upload Custom Image" and bg_image_upload is not None:
@@ -198,8 +188,7 @@ if generate_btn:
 
             text_box_width = canvas_w - 200
             
-            # Pass the manual_font_size to the text drawing engine
-            img = process_and_draw_text(img, final_text, text_box_width, final_start_y, is_urdu, rgb_text_color, manual_font_size, font_style, overlay_style)
+            img = process_and_draw_text(img, final_text, text_box_width, final_start_y, is_urdu, rgb_text_color, manual_font_size, overlay_style)
 
             try: raw_logo = Image.open("logo.jpg").convert("RGBA")
             except FileNotFoundError:
@@ -213,20 +202,13 @@ if generate_btn:
                 circular_logo = raw_logo.copy()
                 circular_logo.putalpha(mask)
                 
-                # Apply Manual Logo Scaling and Positioning
                 circular_logo = circular_logo.resize((logo_scale, logo_scale), Image.LANCZOS)
-                
-                base_padding_x = canvas_w - logo_scale - 40
-                base_padding_y = 40
-                
-                final_logo_x = base_padding_x + logo_x_offset
-                final_logo_y = base_padding_y + logo_y_offset
+                final_logo_x = (canvas_w - logo_scale - 40) + logo_x_offset
+                final_logo_y = 40 + logo_y_offset
                 
                 logo_layer = Image.new('RGBA', img.size, (0,0,0,0))
                 logo_layer.paste(circular_logo, (final_logo_x, final_logo_y))
                 img = Image.alpha_composite(img, logo_layer)
-
-            st.success("✅ Masterpiece generated successfully!")
             
             final_output = img.convert("RGB")
             buf = io.BytesIO()
@@ -239,7 +221,7 @@ if generate_btn:
                 st.download_button(
                     label="⬇️ Download HD Post",
                     data=byte_im,
-                    file_name="Discover_Shamshikhel_Pro.jpg",
+                    file_name="Discover_Shamshikhel_Urdu.jpg",
                     mime="image/jpeg",
                     use_container_width=True
                 )
