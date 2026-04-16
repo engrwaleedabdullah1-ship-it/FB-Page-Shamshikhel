@@ -1,0 +1,3 @@
+libraqm-dev
+libfribidi-dev
+libharfbuzz-dev
