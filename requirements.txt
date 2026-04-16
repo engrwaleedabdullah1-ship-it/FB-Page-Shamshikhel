@@ -1,0 +1,5 @@
+streamlit
+Pillow
+deep-translator
+arabic-reshaper
+python-bidi
