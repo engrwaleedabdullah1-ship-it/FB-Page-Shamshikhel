@@ -53,6 +53,10 @@ with st.sidebar:
     else:
         bg_image_upload, overlay_style = None, "None"
     
+    st.header("3. Typography")
+    text_color_input = st.selectbox("Text Color:", ["Auto", "White", "Black", "Gold", "Dark Green"])
+    body_font_style = st.selectbox("Body Font Style:", ["Regular", "Bold", "Italic"])
+
     with st.expander("🛠️ Advanced Fine-Tuning"):
         head_font_size = st.slider("Heading Size:", 20, 150, 90)
         body_font_size = st.slider("Body Size:", 20, 150, 60)
@@ -90,17 +94,18 @@ def get_font_path(is_urdu, style="Bold"):
     t = m.get(style, "font_bold.ttf")
     return t if os.path.exists(t) else "font_bold.ttf"
 
-# --- LINE-BY-LINE TEXT ENGINE (THE FIX) ---
+# --- LINE-BY-LINE TEXT ENGINE ---
 def process_and_draw_text(img, heading, body, max_width, canvas_h, y_off, h_ur, b_ur, color, h_sz, b_sz, b_st, overlay, l_spc, p_spc):
-    h_font = ImageFont.truetype(get_font_path(h_ur, "Bold"), h_sz)
-    b_font = ImageFont.truetype(get_font_path(b_ur, b_st), b_sz)
+    h_font_p = get_font_path(h_ur, "Bold")
+    b_font_p = get_font_path(b_ur, b_st)
+    h_font = ImageFont.truetype(h_font_p, h_sz)
+    b_font = ImageFont.truetype(b_font_p, b_sz)
 
-    # Function to preserve manual line breaks (The core fix)
     def wrap_preserve_breaks(text, font, max_w):
         lines = []
         for paragraph in text.split('\n'):
             if not paragraph.strip():
-                lines.append("") # Keep empty lines
+                lines.append("") 
                 continue
             char_w = font.size * 0.55
             wrap_w = max(1, int(max_w / char_w))
@@ -114,10 +119,8 @@ def process_and_draw_text(img, heading, body, max_width, canvas_h, y_off, h_ur, 
     t_b_h = len(b_lines) * (b_sz * l_spc)
     gap = p_spc if (heading and body) else 0
     total_h = t_h_h + gap + t_b_h
-    
     start_y = ((canvas_h - total_h) / 2) + y_off
 
-    # Draw Glass Box
     if overlay != "None" and (heading or body):
         pad = 50
         fill = (0, 0, 0, 180) if "Dark" in overlay else (255, 255, 255, 210)
@@ -174,7 +177,7 @@ if generate_btn:
                 img = img_rgb.convert("RGBA")
 
             c_map = {"White": (255,255,255), "Black": (0,0,0), "Gold": (255, 215, 0), "Dark Green": (0, 100, 0)}
-            f_clr = c_map.get(s_clr if text_color=="Auto" else text_color, (255,255,255))
+            f_clr = c_map.get(s_clr if text_color_input == "Auto" else text_color_input, (255,255,255))
 
             img = process_and_draw_text(img, h_final, b_final, w-200, h, text_y_offset, h_ur, b_ur, f_clr, head_font_size, body_font_size, body_font_style, overlay_style, line_spacing, para_spacing)
 
