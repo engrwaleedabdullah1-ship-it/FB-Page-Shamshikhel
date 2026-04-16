@@ -32,7 +32,6 @@ def download_required_fonts():
 
 download_required_fonts()
 
-
 # --- PAGE SETUP ---
 st.set_page_config(page_title="Discover Shamshikhel Post Studio", page_icon="📱", layout="wide")
 
@@ -82,11 +81,16 @@ with st.sidebar:
     body_font_style = st.selectbox("Body Font Style (English/Roman):", ["Regular", "Bold", "Italic"])
     
     with st.expander("🛠️ Advanced Fine-Tuning (Manual Edit)"):
-        st.markdown("**Text Adjustments**")
+        st.markdown("**Size & Positioning**")
         head_font_size = st.slider("Heading Font Size:", 20, 150, 90)
         body_font_size = st.slider("Body Font Size:", 20, 150, 60)
         text_y_offset = st.slider("Move Entire Text Block Up/Down:", -300, 300, 0, help="0 means perfectly centered automatically.")
         
+        st.markdown("**Text Spacing (De-Congestion)**")
+        # NEW: Spacing Controls
+        line_spacing = st.slider("Line Spacing (Breathing Room):", 1.0, 3.0, 1.7, 0.1, help="Higher numbers push lines further apart. 1.7 is ideal for Urdu.")
+        para_spacing = st.slider("Gap Between Heading & Body:", 0, 200, 60)
+
         st.markdown("**Logo Adjustments**")
         logo_scale = st.slider("Logo Size:", 50, 300, 150)
         logo_x_offset = st.slider("Move Logo Left/Right:", -500, 50, 0)
@@ -131,8 +135,8 @@ def get_font_path(is_urdu, style_choice="Bold"):
     elif os.path.exists("font_regular.ttf"): return "font_regular.ttf"
     return None
 
-# --- DUAL-TEXT ENGINE ---
-def process_and_draw_text(img_rgba, heading, body, max_width, canvas_h, y_offset, head_urdu, body_urdu, base_color, h_size, b_size, b_style, overlay):
+# --- UPGRADED DUAL-TEXT ENGINE (With Dynamic Spacing) ---
+def process_and_draw_text(img_rgba, heading, body, max_width, canvas_h, y_offset, head_urdu, body_urdu, base_color, h_size, b_size, b_style, overlay, line_spacing_mult, gap_size):
     
     h_font_path = get_font_path(head_urdu, "Bold") 
     b_font_path = get_font_path(body_urdu, b_style)
@@ -144,12 +148,13 @@ def process_and_draw_text(img_rgba, heading, body, max_width, canvas_h, y_offset
     except OSError: b_font = ImageFont.load_default()
 
     head_lines = []
+    # Use the new Line Spacing Multiplier
     h_line_height = 0
     if heading:
         h_char_width = h_size * 0.55
         h_wrap_width = max(1, int(max_width / h_char_width))
         head_lines = textwrap.wrap(heading, width=h_wrap_width)
-        h_line_height = h_size * 1.5
+        h_line_height = h_size * line_spacing_mult
 
     body_lines = []
     b_line_height = 0
@@ -157,9 +162,10 @@ def process_and_draw_text(img_rgba, heading, body, max_width, canvas_h, y_offset
         b_char_width = b_size * 0.55
         b_wrap_width = max(1, int(max_width / b_char_width))
         body_lines = textwrap.wrap(body, width=b_wrap_width)
-        b_line_height = b_size * 1.5
+        b_line_height = b_size * line_spacing_mult
 
-    gap = 40 if (heading and body) else 0 
+    # Use the new Paragraph Gap variable
+    gap = gap_size if (heading and body) else 0 
     total_h_height = len(head_lines) * h_line_height
     total_b_height = len(body_lines) * b_line_height
     total_text_height = total_h_height + gap + total_b_height
@@ -168,7 +174,7 @@ def process_and_draw_text(img_rgba, heading, body, max_width, canvas_h, y_offset
 
     draw_color = base_color
     if overlay != "None (Direct on Image)" and (heading or body):
-        padding = 40
+        padding = 50 # Increased padding slightly to accommodate wider line spacing
         box_y1 = start_y - padding
         box_y2 = start_y + total_text_height + padding
         box_x1 = (img_rgba.width - max_width) / 2 - padding
@@ -220,7 +226,7 @@ if generate_btn:
     if not heading_text.strip() and not body_text.strip():
         st.warning("⚠️ Please enter either a Heading or Main Body text!")
     else:
-        with st.spinner("Processing Dual-Text Professional Layout..."):
+        with st.spinner("Processing Professional Layout..."):
             
             final_heading = heading_text
             try:
@@ -255,10 +261,10 @@ if generate_btn:
 
             text_box_width = canvas_w - 200
             
-            # The correctly passed 13 arguments for Dual Text rendering
+            # Pass the new spacing parameters to the rendering engine
             img = process_and_draw_text(
                 img, final_heading, final_body, text_box_width, canvas_h, text_y_offset, 
-                head_is_urdu, body_is_urdu, rgb_text_color, head_font_size, body_font_size, body_font_style, overlay_style
+                head_is_urdu, body_is_urdu, rgb_text_color, head_font_size, body_font_size, body_font_style, overlay_style, line_spacing, para_spacing
             )
 
             try: raw_logo = Image.open("logo.jpg").convert("RGBA")
